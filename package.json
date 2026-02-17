@@ -13,7 +13,9 @@
 	},
 	"dependencies": {
 		"@opennextjs/cloudflare": "1.14.0",
+		"kafkajs": "^2.2.4",
 		"next": "16.0.7",
+		"pg": "^8.16.3",
 		"react": "19.2.1",
 		"react-dom": "19.2.1"
 	},
@@ -21,11 +23,13 @@
 		"@eslint/eslintrc": "3",
 		"@tailwindcss/postcss": "4.1.17",
 		"@types/node": "24.10.1",
+		"@types/pg": "^8.15.6",
 		"@types/react": "19.2.7",
 		"@types/react-dom": "19.2.3",
 		"eslint": "9.39.2",
 		"eslint-config-next": "16.0.7",
 		"tailwindcss": "4.1.17",
+		"tsx": "^4.20.6",
 		"typescript": "5.9.3",
 		"wrangler": "4.56.0"
 	},
@@ -36,6 +40,12 @@
 		"check": "npm run build && tsc",
 		"deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
 		"dev": "next dev",
+		"booking-api:dev": "tsx services/booking-api/server.ts",
+		"booking-worker:dev": "tsx services/booking-worker/worker.ts",
+		"infra:down": "docker compose -f infra/docker-compose.yml down -v",
+		"infra:topics": "sh scripts/create-topics.sh",
+		"infra:up": "docker compose -f infra/docker-compose.yml up -d",
+		"kafka:smoke": "tsx tools/kafka-smoke.ts",
 		"lint": "next lint",
 		"preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
 		"start": "next start"
