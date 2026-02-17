@@ -61,3 +61,95 @@ To learn more about Next.js, take a look at the following resources:
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+
+## Local Booking Infra (Kafka + Postgres)
+
+This project now includes a local infrastructure setup for learning event-driven booking flows:
+
+- PostgreSQL on `localhost:5432`
+- Redpanda (Kafka API compatible) on `localhost:9092`
+- Redpanda Console on `http://localhost:8080`
+
+### Start local infra
+
+```bash
+npm run infra:up
+```
+
+### Create Kafka topics
+
+```bash
+npm run infra:topics
+```
+
+Created topics:
+
+- `booking.requested`
+- `booking.confirmed`
+- `booking.rejected`
+- `booking.deadletter`
+
+### Run Kafka smoke test
+
+```bash
+npm run kafka:smoke
+```
+
+The smoke test publishes one event to `booking.requested` and consumes it with a test consumer group.
+
+## Booking API (Step 2)
+
+Run the local API that accepts bookings and publishes `booking.requested` events:
+
+```bash
+npm run booking-api:dev
+```
+
+Defaults:
+
+- API base URL: `http://localhost:4001`
+- Kafka broker: `localhost:9092`
+- Topic: `booking.requested`
+- Database URL: `postgres://booking:booking@localhost:5432/booking`
+
+Create a booking:
+
+```bash
+curl -X POST http://localhost:4001/bookings \
+  -H "content-type: application/json" \
+  -d '{"userId":"user-1","slotId":"slot-2026-02-17T10:00:00Z"}'
+```
+
+Get a booking:
+
+```bash
+curl http://localhost:4001/bookings/<bookingId>
+```
+
+`GET /bookings/:id` now reads from PostgreSQL, including updated status from the worker.
+
+## Booking Worker (Step 3)
+
+Run the worker that consumes `booking.requested` and produces result events:
+
+```bash
+npm run booking-worker:dev
+```
+
+Default behavior:
+
+- If `slotId` contains `full` -> publish `booking.rejected`
+- Otherwise -> publish `booking.confirmed`
+
+Result topics:
+
+- `booking.confirmed`
+- `booking.rejected`
+
+The worker also updates the `bookings` row in PostgreSQL (`status`, `reason`, `updated_at`).
+
+### Stop local infra
+
+```bash
+npm run infra:down
+```
