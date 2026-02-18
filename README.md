@@ -99,7 +99,7 @@ The smoke test publishes one event to `booking.requested` and consumes it with a
 
 ## Booking API (Step 2)
 
-Run the local API that accepts bookings and publishes `booking.requested` events:
+Run the local API that accepts bookings and writes booking + outbox event in one DB transaction:
 
 ```bash
 npm run booking-api:dev
@@ -109,7 +109,7 @@ Defaults:
 
 - API base URL: `http://localhost:4001`
 - Kafka broker: `localhost:9092`
-- Topic: `booking.requested`
+- Outbox event type: `booking.requested`
 - Database URL: `postgres://booking:booking@localhost:5432/booking`
 
 Create a booking:
@@ -126,9 +126,24 @@ Get a booking:
 curl http://localhost:4001/bookings/<bookingId>
 ```
 
-`GET /bookings/:id` now reads from PostgreSQL, including updated status from the worker.
+`GET /bookings/:id` reads from PostgreSQL, including updated status from the worker.
 
-## Booking Worker (Step 3)
+## Outbox Publisher (Step 3)
+
+Run the outbox publisher that reads `outbox_events` and publishes to Kafka:
+
+```bash
+npm run outbox-publisher:dev
+```
+
+Default behavior:
+
+- Polls unpublished outbox rows every 1000ms
+- Uses `event_type` as Kafka topic (e.g. `booking.requested`)
+- Marks row as `published_at` after successful publish
+- Increments `retry_count` and stores `last_error` on publish failures
+
+## Booking Worker (Step 4)
 
 Run the worker that consumes `booking.requested` and produces result events:
 
@@ -147,6 +162,30 @@ Result topics:
 - `booking.rejected`
 
 The worker also updates the `bookings` row in PostgreSQL (`status`, `reason`, `updated_at`).
+
+## Booking Web (Frontend)
+
+Start the web UI:
+
+```bash
+npm run dev
+```
+
+Frontend routes:
+
+- `/` create booking form
+- `/bookings/<bookingId>` booking status page (polling every 1.5s)
+
+Required local services for full flow:
+
+1. `npm run booking-api:dev`
+2. `npm run outbox-publisher:dev`
+3. `npm run booking-worker:dev`
+4. `npm run dev`
+
+Optional:
+
+- Set `BOOKING_API_BASE_URL` if your API is not on `http://localhost:4001`
 
 ### Stop local infra
 

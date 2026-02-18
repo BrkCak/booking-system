@@ -42,6 +42,7 @@
 		"dev": "next dev",
 		"booking-api:dev": "tsx services/booking-api/server.ts",
 		"booking-worker:dev": "tsx services/booking-worker/worker.ts",
+		"outbox-publisher:dev": "tsx services/outbox-publisher/publisher.ts",
 		"infra:down": "docker compose -f infra/docker-compose.yml down -v",
 		"infra:topics": "sh scripts/create-topics.sh",
 		"infra:up": "docker compose -f infra/docker-compose.yml up -d",

@@ -1,6 +1,5 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { Kafka, Producer } from "kafkajs";
 import { ensureSchema, pool } from "../shared/db";
 
 type BookingRequest = {
@@ -19,16 +18,8 @@ type BookingCreated = {
 };
 
 const PORT = Number(process.env.BOOKING_API_PORT ?? 4001);
-const KAFKA_BROKERS = (process.env.KAFKA_BROKERS ?? "localhost:9092").split(",");
-const BOOKING_REQUESTED_TOPIC =
-	process.env.BOOKING_REQUESTED_TOPIC ?? "booking.requested";
-
-const kafka = new Kafka({
-	clientId: "booking-api",
-	brokers: KAFKA_BROKERS,
-});
-
-const producer: Producer = kafka.producer();
+const BOOKING_REQUESTED_EVENT_TYPE =
+	process.env.BOOKING_REQUESTED_EVENT_TYPE ?? "booking.requested";
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 	const chunks: Buffer[] = [];
@@ -83,21 +74,37 @@ async function handleCreateBooking(
 			reason: null,
 		};
 
-		await pool.query(
-			`INSERT INTO bookings (id, user_id, slot_id, status, reason)
-       VALUES ($1, $2, $3, $4, $5)`,
-			[booking.bookingId, booking.userId, booking.slotId, booking.status, booking.reason],
-		);
+		const client = await pool.connect();
+		try {
+			await client.query("BEGIN");
+			await client.query(
+				`INSERT INTO bookings (id, user_id, slot_id, status, reason)
+         VALUES ($1, $2, $3, $4, $5)`,
+				[booking.bookingId, booking.userId, booking.slotId, booking.status, booking.reason],
+			);
 
-		await producer.send({
-			topic: BOOKING_REQUESTED_TOPIC,
-			messages: [
-				{
-					key: booking.bookingId,
-					value: JSON.stringify(booking),
-				},
-			],
-		});
+			await client.query(
+				`INSERT INTO outbox_events (event_type, event_key, payload)
+         VALUES ($1, $2, $3::jsonb)`,
+				[
+					BOOKING_REQUESTED_EVENT_TYPE,
+					booking.bookingId,
+					JSON.stringify({
+						bookingId: booking.bookingId,
+						userId: booking.userId,
+						slotId: booking.slotId,
+						status: booking.status,
+						createdAt: booking.createdAt,
+					}),
+				],
+			);
+			await client.query("COMMIT");
+		} catch (error) {
+			await client.query("ROLLBACK");
+			throw error;
+		} finally {
+			client.release();
+		}
 
 		sendJson(res, 201, booking);
 	} catch (error) {
@@ -157,7 +164,6 @@ async function handleGetBooking(pathname: string, res: ServerResponse): Promise<
 
 async function start(): Promise<void> {
 	await ensureSchema();
-	await producer.connect();
 
 	const server = createServer(async (req, res) => {
 		const method = req.method ?? "GET";
@@ -183,14 +189,11 @@ async function start(): Promise<void> {
 	});
 
 	server.listen(PORT, () => {
-		console.log(
-			`booking-api listening on http://localhost:${PORT} (topic: ${BOOKING_REQUESTED_TOPIC})`,
-		);
+		console.log(`booking-api listening on http://localhost:${PORT} (outbox mode)`);
 	});
 
 	const shutdown = async () => {
 		server.close();
-		await producer.disconnect();
 		await pool.end();
 		process.exit(0);
 	};
