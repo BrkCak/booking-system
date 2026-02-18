@@ -1,5 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import process from "node:process";
 import { ensureSchema, pool } from "../shared/db";
 
 type BookingRequest = {

@@ -1,4 +1,5 @@
 import { Kafka } from "kafkajs";
+import process from "node:process";
 
 const kafka = new Kafka({
 	clientId: "booking-smoke",
@@ -31,6 +32,7 @@ async function run(): Promise<void> {
 	let received = false;
 	await consumer.run({
 		eachMessage: async ({ topic, message }) => {
+			await Promise.resolve();
 			received = true;
 			console.log(
 				`[${topic}] key=${message.key?.toString() ?? ""} value=${message.value?.toString() ?? ""}`,

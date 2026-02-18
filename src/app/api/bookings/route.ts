@@ -1,3 +1,5 @@
+import process from "node:process";
+
 const BOOKING_API_BASE_URL =
 	process.env.BOOKING_API_BASE_URL ?? "http://localhost:4001";
 

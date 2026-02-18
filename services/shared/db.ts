@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import process from "node:process";
 
 const DATABASE_URL =
 	process.env.DATABASE_URL ?? "postgres://booking:booking@localhost:5432/booking";

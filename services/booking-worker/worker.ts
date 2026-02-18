@@ -1,4 +1,5 @@
 import { Kafka } from "kafkajs";
+import process from "node:process";
 import { ensureSchema, pool } from "../shared/db";
 
 type BookingRequestedEvent = {
