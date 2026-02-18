@@ -1,0 +1,8 @@
+{
+	"lint": {
+		"files": {
+			"include": ["services/", "tools/", "src/"],
+			"exclude": ["env.d.ts", ".next/", "node_modules/"]
+		}
+	}
+}
