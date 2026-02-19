@@ -142,7 +142,8 @@ Default behavior:
 - Polls unpublished outbox rows every 1000ms
 - Uses `event_type` as Kafka topic (e.g. `booking.requested`)
 - Marks row as `published_at` after successful publish
-- Increments `retry_count` and stores `last_error` on publish failures
+- Uses exponential retry backoff via `next_attempt_at` on publish failures
+- Moves events to `booking.deadletter` after max retries (`OUTBOX_MAX_RETRY_COUNT`, default `20`)
 
 ## Booking Worker (Step 4)
 

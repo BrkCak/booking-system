@@ -7,12 +7,16 @@ type OutboxRow = {
 	event_type: string;
 	event_key: string;
 	payload: unknown;
+	retry_count: number;
 };
 
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS ?? "localhost:9092").split(",");
 const POLL_INTERVAL_MS = Number(process.env.OUTBOX_POLL_INTERVAL_MS ?? 1000);
 const BATCH_SIZE = Number(process.env.OUTBOX_BATCH_SIZE ?? 25);
 const MAX_RETRY_COUNT = Number(process.env.OUTBOX_MAX_RETRY_COUNT ?? 20);
+const RETRY_BASE_DELAY_MS = Number(process.env.OUTBOX_RETRY_BASE_DELAY_MS ?? 1000);
+const RETRY_MAX_DELAY_MS = Number(process.env.OUTBOX_RETRY_MAX_DELAY_MS ?? 60000);
+const DEADLETTER_TOPIC = process.env.OUTBOX_DEADLETTER_TOPIC ?? "booking.deadletter";
 
 const kafka = new Kafka({
 	clientId: "outbox-publisher",
@@ -25,14 +29,22 @@ function topicFor(eventType: string): string {
 	return eventType;
 }
 
+function nextBackoffMs(retryCount: number): number {
+	const exponent = Math.max(0, retryCount - 1);
+	const raw = RETRY_BASE_DELAY_MS * 2 ** exponent;
+	return Math.min(RETRY_MAX_DELAY_MS, raw);
+}
+
 async function publishBatch(): Promise<number> {
 	const client = await pool.connect();
 	try {
 		await client.query("BEGIN");
 		const result = await client.query<OutboxRow>(
-			`SELECT id, event_type, event_key, payload
+			`SELECT id, event_type, event_key, payload, retry_count
        FROM outbox_events
        WHERE published_at IS NULL
+         AND dead_lettered_at IS NULL
+         AND next_attempt_at <= NOW()
          AND retry_count < $1
        ORDER BY created_at
        LIMIT $2
@@ -64,11 +76,47 @@ async function publishBatch(): Promise<number> {
 					[row.id],
 				);
 			} catch (error) {
+				const nextRetryCount = row.retry_count + 1;
+				const errorMessage =
+					error instanceof Error ? error.message : "Unknown publish error";
+
+				if (nextRetryCount >= MAX_RETRY_COUNT) {
+					await producer.send({
+						topic: DEADLETTER_TOPIC,
+						messages: [
+							{
+								key: row.event_key,
+								value: JSON.stringify({
+									source: "outbox-publisher",
+									outboxEventId: row.id,
+									eventType: row.event_type,
+									eventKey: row.event_key,
+									payload: row.payload,
+									retryCount: nextRetryCount,
+									error: errorMessage,
+									deadLetteredAt: new Date().toISOString(),
+								}),
+							},
+						],
+					});
+
+					await client.query(
+						`UPDATE outbox_events
+           SET retry_count = $2, last_error = $3, dead_lettered_at = NOW()
+           WHERE id = $1`,
+						[row.id, nextRetryCount, errorMessage],
+					);
+					continue;
+				}
+
+				const backoffMs = nextBackoffMs(nextRetryCount);
 				await client.query(
 					`UPDATE outbox_events
-           SET retry_count = retry_count + 1, last_error = $2
+           SET retry_count = $2,
+               last_error = $3,
+               next_attempt_at = NOW() + ($4 * INTERVAL '1 millisecond')
            WHERE id = $1`,
-					[row.id, error instanceof Error ? error.message : "Unknown publish error"],
+					[row.id, nextRetryCount, errorMessage, backoffMs],
 				);
 			}
 		}

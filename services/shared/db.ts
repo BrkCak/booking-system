@@ -61,15 +61,25 @@ export async function ensureSchema(): Promise<void> {
 				event_key TEXT NOT NULL,
 				payload JSONB NOT NULL,
 				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				published_at TIMESTAMPTZ,
+				dead_lettered_at TIMESTAMPTZ,
 				retry_count INT NOT NULL DEFAULT 0,
 				last_error TEXT
 			);
 		`);
 		await runDdlSafely(client, `
+			ALTER TABLE outbox_events
+			ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		`);
+		await runDdlSafely(client, `
+			ALTER TABLE outbox_events
+			ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
+		`);
+		await runDdlSafely(client, `
 			CREATE INDEX IF NOT EXISTS idx_outbox_unpublished
-			ON outbox_events (created_at)
-			WHERE published_at IS NULL;
+			ON outbox_events (next_attempt_at, created_at)
+			WHERE published_at IS NULL AND dead_lettered_at IS NULL;
 		`);
 		await client.query("SELECT pg_advisory_unlock(424242)");
 		await client.query("COMMIT");
