@@ -69,6 +69,7 @@ This project now includes a local infrastructure setup for learning event-driven
 - PostgreSQL on `localhost:5432`
 - Redpanda (Kafka API compatible) on `localhost:9092`
 - Redpanda Console on `http://localhost:8080`
+- Kafbat (Kafka UI) on `http://localhost:8081`
 
 ### Start local infra
 

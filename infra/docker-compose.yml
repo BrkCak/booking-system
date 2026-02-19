@@ -37,5 +37,16 @@ services:
     depends_on:
       - redpanda
 
+  kafbat:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-redpanda
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: redpanda:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    depends_on:
+      - redpanda
+
 volumes:
   pg_data:
