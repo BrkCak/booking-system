@@ -1,4 +1,4 @@
-import { offers, rooms } from "../src/lib/hotel-data";
+import { offers, rooms } from "../src/lib/hotel-data.ts";
 
 Deno.test("rooms catalog is non-empty and has unique ids", () => {
 	if (rooms.length === 0) {
