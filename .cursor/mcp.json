@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "booking-system": {
+      "command": "npx",
+      "args": ["tsx", "services/mcp-booking-server/index.ts"],
+      "env": {}
+    }
+  }
+}

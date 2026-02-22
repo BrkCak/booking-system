@@ -189,6 +189,43 @@ Optional:
 
 - Set `BOOKING_API_BASE_URL` if your API is not on `http://localhost:4001`
 
+## MCP Server
+
+An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server exposes booking tools to Cursor (or other MCP clients). The server calls the Booking API over HTTP; it does not access the database directly.
+
+**Prerequisite:** Booking API must be running (`npm run booking-api:dev`).
+
+**Tools:**
+
+- `create_booking` — create a booking for a user and slot (`userId`, `slotId`).
+- `get_booking` — get status and details of a booking by `bookingId`.
+
+**Run standalone (for testing):**
+
+```bash
+npm run mcp-server
+```
+
+**Use in Cursor:** Add the server to your MCP configuration. Project-level: `.cursor/mcp.json` in this repo (see below). Global: `~/.cursor/mcp.json`.
+
+Example config (project or global). For project-level `.cursor/mcp.json` in this repo, `cwd` is usually not needed (Cursor runs from the project root):
+
+```json
+{
+  "mcpServers": {
+    "booking-system": {
+      "command": "npx",
+      "args": ["tsx", "services/mcp-booking-server/index.ts"],
+      "env": {}
+    }
+  }
+}
+```
+
+- To point at another API: `"env": { "BOOKING_API_BASE_URL": "http://localhost:4001" }`.
+
+Cursor starts the process and uses stdio for MCP; you do not need to run `npm run mcp-server` yourself when using it from Cursor.
+
 ### Stop local infra
 
 ```bash

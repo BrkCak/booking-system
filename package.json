@@ -12,12 +12,14 @@
 		"publish": true
 	},
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.26.0",
 		"@opennextjs/cloudflare": "1.16.5",
 		"kafkajs": "^2.2.4",
 		"next": "16.1.6",
 		"pg": "^8.16.3",
 		"react": "19.2.4",
-		"react-dom": "19.2.4"
+		"react-dom": "19.2.4",
+		"zod": "^4.3.6"
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "3",
@@ -47,6 +49,7 @@
 		"infra:topics": "sh scripts/create-topics.sh",
 		"infra:up": "docker compose -f infra/docker-compose.yml up -d",
 		"kafka:smoke": "tsx tools/kafka-smoke.ts",
+		"mcp-server": "tsx services/mcp-booking-server/index.ts",
 		"lint": "eslint .",
 		"preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
 		"start": "next start"
