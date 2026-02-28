@@ -1,36 +1,55 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import process from "node:process";
+import { ensureSchema, pool } from "../shared/db";
 
-const BOOKING_API_BASE_URL =
-	process.env.BOOKING_API_BASE_URL ?? "http://localhost:4001";
+const BOOKING_REQUESTED_EVENT_TYPE =
+	process.env.BOOKING_REQUESTED_EVENT_TYPE ?? "booking.requested";
 
 async function createBooking(userId: string, slotId: string): Promise<string> {
-	const res = await fetch(`${BOOKING_API_BASE_URL}/bookings`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ userId, slotId }),
-	});
-	if (!res.ok) {
-		const body = await res.text();
-		let detail = body;
-		try {
-			const json = JSON.parse(body) as { error?: string; details?: string };
-			detail = [json.error, json.details].filter(Boolean).join(" — ") || body;
-		} catch {
-			// use raw body
-		}
-		throw new Error(`Booking API error (${res.status}): ${detail}`);
+	const bookingId = randomUUID();
+	const createdAt = new Date().toISOString();
+
+	const client = await pool.connect();
+	try {
+		await client.query("BEGIN");
+		await client.query(
+			`INSERT INTO bookings (id, user_id, slot_id, status, reason)
+       VALUES ($1, $2, $3, $4, $5)`,
+			[bookingId, userId, slotId, "PENDING", null],
+		);
+		await client.query(
+			`INSERT INTO outbox_events (event_type, event_key, payload)
+       VALUES ($1, $2, $3::jsonb)`,
+			[
+				BOOKING_REQUESTED_EVENT_TYPE,
+				bookingId,
+				JSON.stringify({
+					bookingId,
+					userId,
+					slotId,
+					status: "PENDING",
+					createdAt,
+				}),
+			],
+		);
+		await client.query("COMMIT");
+	} catch (error) {
+		await client.query("ROLLBACK");
+		throw error;
+	} finally {
+		client.release();
 	}
-	const data = (await res.json()) as { bookingId: string; status: string };
+
 	return JSON.stringify(
 		{
-			bookingId: data.bookingId,
+			bookingId,
 			userId,
 			slotId,
-			status: data.status,
-			message: "Booking created. Use get_booking to check status after the worker processes it.",
+			status: "PENDING",
+			message: "Booking created in PostgreSQL. Use get_booking to check status after worker processing.",
 		},
 		null,
 		2,
@@ -38,31 +57,39 @@ async function createBooking(userId: string, slotId: string): Promise<string> {
 }
 
 async function getBooking(bookingId: string): Promise<string> {
-	const res = await fetch(`${BOOKING_API_BASE_URL}/bookings/${encodeURIComponent(bookingId)}`);
-	if (!res.ok) {
-		if (res.status === 404) {
-			throw new Error(`Booking not found: ${bookingId}`);
-		}
-		const body = await res.text();
-		let detail = body;
-		try {
-			const json = JSON.parse(body) as { error?: string; details?: string };
-			detail = [json.error, json.details].filter(Boolean).join(" — ") || body;
-		} catch {
-			// use raw body
-		}
-		throw new Error(`Booking API error (${res.status}): ${detail}`);
-	}
-	const data = (await res.json()) as {
-		bookingId: string;
-		userId: string;
-		slotId: string;
-		status: string;
+	const result = await pool.query<{
+		id: string;
+		user_id: string;
+		slot_id: string;
+		status: "PENDING" | "CONFIRMED" | "REJECTED";
 		reason: string | null;
-		createdAt: string;
-		updatedAt: string;
-	};
-	return JSON.stringify(data, null, 2);
+		created_at: Date;
+		updated_at: Date;
+	}>(
+		`SELECT id, user_id, slot_id, status, reason, created_at, updated_at
+     FROM bookings
+     WHERE id = $1`,
+		[bookingId],
+	);
+
+	if (result.rowCount === 0) {
+		throw new Error(`Booking not found: ${bookingId}`);
+	}
+
+	const row = result.rows[0];
+	return JSON.stringify(
+		{
+			bookingId: row.id,
+			userId: row.user_id,
+			slotId: row.slot_id,
+			status: row.status,
+			reason: row.reason,
+			createdAt: row.created_at.toISOString(),
+			updatedAt: row.updated_at.toISOString(),
+		},
+		null,
+		2,
+	);
 }
 
 const server = new McpServer({
@@ -118,10 +145,24 @@ server.registerTool(
 );
 
 async function main(): Promise<void> {
+	await ensureSchema();
+
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
 	// Log to stderr so stdio is free for MCP messages
-	console.error("MCP booking server running on stdio");
+	console.error("MCP booking server running on stdio (PostgreSQL mode)");
+
+	const shutdown = async () => {
+		await pool.end();
+		process.exit(0);
+	};
+
+	process.on("SIGINT", () => {
+		void shutdown();
+	});
+	process.on("SIGTERM", () => {
+		void shutdown();
+	});
 }
 
 main().catch((error) => {

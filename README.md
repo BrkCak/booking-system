@@ -197,13 +197,13 @@ Optional:
 
 ## MCP Server
 
-An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server exposes booking tools to Cursor (or other MCP clients). The server calls the Booking API over HTTP; it does not access the database directly.
+An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server exposes booking tools to Cursor (or other MCP clients). The server writes/reads bookings directly in PostgreSQL (including outbox events), so it does not require the Booking API to run.
 
-**Prerequisite:** Booking API must be running (`npm run booking-api:dev`).
+**Prerequisite:** PostgreSQL must be running (for local setup: `npm run infra:up`).
 
 **Tools:**
 
-- `create_booking` — create a booking for a user and slot (`userId`, `slotId`).
+- `create_booking` — create a booking for a user and slot (`userId`, `slotId`) in PostgreSQL and enqueue `booking.requested` in `outbox_events`.
 - `get_booking` — get status and details of a booking by `bookingId`.
 
 **Run standalone (for testing):**
@@ -228,7 +228,9 @@ Example config (project or global). For project-level `.cursor/mcp.json` in this
 }
 ```
 
-- To point at another API: `"env": { "BOOKING_API_BASE_URL": "http://localhost:4001" }`.
+- Optional env vars:
+  - `DATABASE_URL` (default: `postgres://booking:booking@localhost:5432/booking`)
+  - `BOOKING_REQUESTED_EVENT_TYPE` (default: `booking.requested`)
 
 Cursor starts the process and uses stdio for MCP; you do not need to run `npm run mcp-server` yourself when using it from Cursor.
 
