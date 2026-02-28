@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import process from "node:process";
 
 const SESSION_COOKIE_NAME = "booking_user_id";
 const SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
