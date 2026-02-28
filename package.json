@@ -50,7 +50,7 @@
 		"infra:up": "docker compose -f infra/docker-compose.yml up -d",
 		"kafka:smoke": "tsx tools/kafka-smoke.ts",
 		"mcp-server": "tsx services/mcp-booking-server/index.ts",
-		"lint": "eslint .",
+		"lint": "eslint . --ignore-pattern eslint.config.mjs",
 		"preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
 		"start": "next start"
 	}
