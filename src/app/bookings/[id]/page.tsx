@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-type BookingStatus = "PENDING" | "CONFIRMED" | "REJECTED";
+type BookingStatus = "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 
 type Booking = {
 	bookingId: string;
@@ -23,6 +23,9 @@ function statusColor(status: BookingStatus): string {
 	if (status === "REJECTED") {
 		return "text-red-700 bg-red-100";
 	}
+	if (status === "CANCELLED") {
+		return "text-slate-700 bg-slate-200";
+	}
 	return "text-amber-700 bg-amber-100";
 }
 
@@ -33,7 +36,10 @@ export default function BookingStatusPage() {
 	const [error, setError] = useState<string | null>(null);
 
 	const isFinal = useMemo(
-		() => booking?.status === "CONFIRMED" || booking?.status === "REJECTED",
+		() =>
+			booking?.status === "CONFIRMED" ||
+			booking?.status === "REJECTED" ||
+			booking?.status === "CANCELLED",
 		[booking?.status],
 	);
 

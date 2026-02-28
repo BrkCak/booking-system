@@ -61,7 +61,7 @@ async function getBooking(bookingId: string): Promise<string> {
 		id: string;
 		user_id: string;
 		slot_id: string;
-		status: "PENDING" | "CONFIRMED" | "REJECTED";
+		status: "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 		reason: string | null;
 		created_at: Date;
 		updated_at: Date;

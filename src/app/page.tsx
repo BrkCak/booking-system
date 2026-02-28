@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
 import { rooms } from "@/lib/hotel-data";
 
 export default function Home() {
@@ -13,12 +13,67 @@ export default function Home() {
 	const [guests, setGuests] = useState("2");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [sessionMessage, setSessionMessage] = useState<string | null>(null);
 	const router = useRouter();
+
+	useEffect(() => {
+		let cancelled = false;
+
+		void (async () => {
+			try {
+				const response = await fetch("/api/session", { cache: "no-store" });
+				if (!response.ok) {
+					return;
+				}
+
+				const payload = (await response.json()) as { userId?: string | null };
+				if (!cancelled && payload.userId) {
+					setUserId(payload.userId);
+				}
+			} catch {
+				// keep default fallback user
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	async function persistSessionUser(): Promise<boolean> {
+		const response = await fetch("/api/session", {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ userId }),
+		});
+		const payload = (await response.json()) as { error?: string };
+		if (!response.ok) {
+			setError(payload.error ?? "User session could not be created.");
+			return false;
+		}
+
+		setSessionMessage(`Signed in as ${userId}`);
+		return true;
+	}
+
+	async function onSaveSessionClick() {
+		setError(null);
+		setSessionMessage(null);
+		try {
+			await persistSessionUser();
+		} catch {
+			setError("Could not save user session.");
+		}
+	}
 
 	async function onSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setError(null);
+		setSessionMessage(null);
 		setIsSubmitting(true);
+
 		if (checkOut <= checkIn) {
 			setError("Check-out must be after check-in.");
 			setIsSubmitting(false);
@@ -28,12 +83,17 @@ export default function Home() {
 		const slotId = `${roomId}:${checkIn}:${checkOut}:g${guests}`;
 
 		try {
+			const hasSession = await persistSessionUser();
+			if (!hasSession) {
+				return;
+			}
+
 			const response = await fetch("/api/bookings", {
 				method: "POST",
 				headers: {
 					"content-type": "application/json",
 				},
-					body: JSON.stringify({ userId, slotId }),
+				body: JSON.stringify({ userId, slotId }),
 			});
 
 			const data = (await response.json()) as { bookingId?: string; error?: string };
@@ -75,6 +135,12 @@ export default function Home() {
 					>
 						Offers
 					</Link>
+					<Link
+						className="rounded-full border border-[var(--line)] px-4 py-2 text-sm text-[var(--ink)] hover:bg-white"
+						href="/my-bookings"
+					>
+						My Bookings
+					</Link>
 				</div>
 			</header>
 
@@ -109,13 +175,13 @@ export default function Home() {
 					<p className="text-xs uppercase tracking-[0.22em] text-[var(--gold)]">Reserve Now</p>
 					<h2 className="font-editorial mt-2 text-3xl text-[var(--ink)]">Book Your Room</h2>
 					<p className="mt-2 text-sm text-[var(--ink-soft)]">
-						This submits a real booking event to your Kafka pipeline.
+						This submits a real booking event to your Kafka pipeline for the active user.
 					</p>
 
 					<form className="mt-6 space-y-4" onSubmit={onSubmit}>
 						<label className="block">
 							<span className="mb-1.5 block text-xs uppercase tracking-wide text-[var(--ink-soft)]">
-								Guest ID
+								User ID
 							</span>
 							<input
 								className="w-full rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-[var(--ink)] outline-none ring-[var(--brand)] focus:ring"
@@ -124,6 +190,15 @@ export default function Home() {
 								required
 							/>
 						</label>
+
+						<button
+							type="button"
+							onClick={onSaveSessionClick}
+							className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50"
+						>
+							Set Active User
+						</button>
+						{sessionMessage ? <p className="text-xs text-emerald-700">{sessionMessage}</p> : null}
 
 						<label className="block">
 							<span className="mb-1.5 block text-xs uppercase tracking-wide text-[var(--ink-soft)]">Room</span>
@@ -194,17 +269,17 @@ export default function Home() {
 				</div>
 			</section>
 
-				<section className="mt-6 grid gap-6 md:grid-cols-3">
-					{rooms.map((room) => (
-						<article className="surface-card rounded-2xl p-5" key={room.id}>
-							<div className={`h-32 rounded-xl bg-gradient-to-br ${room.gradient}`} />
-							<p className="mt-4 text-xs uppercase tracking-[0.2em] text-[var(--brand)]">{room.tag}</p>
-							<h3 className="font-editorial mt-1 text-3xl text-[var(--ink)]">{room.name}</h3>
-							<p className="mt-2 text-sm text-[var(--ink-soft)]">{room.description}</p>
-							<p className="mt-3 text-sm font-semibold text-[var(--ink)]">${room.pricePerNight}/night</p>
-						</article>
-					))}
-				</section>
+			<section className="mt-6 grid gap-6 md:grid-cols-3">
+				{rooms.map((room) => (
+					<article className="surface-card rounded-2xl p-5" key={room.id}>
+						<div className={`h-32 rounded-xl bg-gradient-to-br ${room.gradient}`} />
+						<p className="mt-4 text-xs uppercase tracking-[0.2em] text-[var(--brand)]">{room.tag}</p>
+						<h3 className="font-editorial mt-1 text-3xl text-[var(--ink)]">{room.name}</h3>
+						<p className="mt-2 text-sm text-[var(--ink-soft)]">{room.description}</p>
+						<p className="mt-3 text-sm font-semibold text-[var(--ink)]">${room.pricePerNight}/night</p>
+					</article>
+				))}
+			</section>
 
 			<footer className="mt-8 pb-4 text-center text-xs uppercase tracking-[0.18em] text-[var(--ink-soft)]">
 				Real-time booking status powered by Kafka and PostgreSQL

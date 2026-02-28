@@ -48,11 +48,20 @@ export async function ensureSchema(): Promise<void> {
 				id UUID PRIMARY KEY,
 				user_id TEXT NOT NULL,
 				slot_id TEXT NOT NULL,
-				status TEXT NOT NULL CHECK (status IN ('PENDING', 'CONFIRMED', 'REJECTED')),
+				status TEXT NOT NULL CHECK (status IN ('PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED')),
 				reason TEXT,
 				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 			);
+		`);
+		await runDdlSafely(client, `
+			ALTER TABLE bookings
+			DROP CONSTRAINT IF EXISTS bookings_status_check;
+		`);
+		await runDdlSafely(client, `
+			ALTER TABLE bookings
+			ADD CONSTRAINT bookings_status_check
+			CHECK (status IN ('PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED'));
 		`);
 		await runDdlSafely(client, `
 			CREATE TABLE IF NOT EXISTS outbox_events (

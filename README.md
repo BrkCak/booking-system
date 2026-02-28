@@ -133,6 +133,28 @@ Get a booking:
 curl http://localhost:4001/bookings/<bookingId>
 ```
 
+List bookings for a user:
+
+```bash
+curl "http://localhost:4001/bookings?userId=user-1"
+```
+
+Cancel a booking:
+
+```bash
+curl -X PATCH http://localhost:4001/bookings/<bookingId>/cancel \
+  -H "content-type: application/json" \
+  -d '{"reason":"Guest requested cancellation"}'
+```
+
+Reschedule a booking:
+
+```bash
+curl -X PATCH http://localhost:4001/bookings/<bookingId>/reschedule \
+  -H "content-type: application/json" \
+  -d '{"slotId":"ocean-suite:2026-03-01:2026-03-03:g2"}'
+```
+
 `GET /bookings/:id` reads from PostgreSQL, including updated status from the worker.
 
 ## Outbox Publisher (Step 3)
@@ -181,8 +203,9 @@ npm run dev
 
 Frontend routes:
 
-- `/` create booking form
+- `/` set active user + create booking form
 - `/bookings/<bookingId>` booking status page (polling every 1.5s)
+- `/my-bookings` list current user's bookings, cancel, and reschedule
 
 Required local services for full flow:
 
@@ -194,6 +217,11 @@ Required local services for full flow:
 Optional:
 
 - Set `BOOKING_API_BASE_URL` if your API is not on `http://localhost:4001`
+
+Notes:
+
+- The web app stores the active user in a secure HTTP-only cookie (`booking_user_id`) via `/api/session`.
+- Booking API requests from the web include `x-booking-user-id`; list/get/cancel/reschedule are restricted to that user.
 
 ## MCP Server
 

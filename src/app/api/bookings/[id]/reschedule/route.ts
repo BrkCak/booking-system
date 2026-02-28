@@ -11,8 +11,8 @@ async function authenticatedUserId(): Promise<string | null> {
 	return userId.length > 0 ? userId : null;
 }
 
-export async function GET(
-	_request: Request,
+export async function PATCH(
+	request: Request,
 	context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
 	try {
@@ -25,12 +25,14 @@ export async function GET(
 		}
 
 		const { id } = await context.params;
-		const response = await fetch(`${BOOKING_API_BASE_URL}/bookings/${id}`, {
-			method: "GET",
-			cache: "no-store",
+		const body = await request.text();
+		const response = await fetch(`${BOOKING_API_BASE_URL}/bookings/${id}/reschedule`, {
+			method: "PATCH",
 			headers: {
+				"content-type": "application/json",
 				"x-booking-user-id": userId,
 			},
+			body,
 		});
 
 		const payload = await response.text();
