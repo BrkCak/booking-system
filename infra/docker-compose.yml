@@ -10,43 +10,35 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
 
-  redpanda:
-    image: docker.redpanda.com/redpandadata/redpanda:v24.3.6
-    command:
-      - redpanda
-      - start
-      - --overprovisioned
-      - --smp=1
-      - --memory=1G
-      - --reserve-memory=0M
-      - --check=false
-      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
-      - --pandaproxy-addr=0.0.0.0:8082
-      - --advertise-pandaproxy-addr=PLAINTEXT://localhost:8082
+  kafka:
+    image: apache/kafka:3.8.1
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
     ports:
       - "9092:9092"
-      - "8082:8082"
-
-  redpanda-console:
-    image: docker.redpanda.com/redpandadata/console:v2.8.0
-    environment:
-      KAFKA_BROKERS: redpanda:9092
-    ports:
-      - "8080:8080"
-    depends_on:
-      - redpanda
 
   kafbat:
     image: ghcr.io/kafbat/kafka-ui:latest
     environment:
-      KAFKA_CLUSTERS_0_NAME: local-redpanda
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: redpanda:9092
+      KAFKA_CLUSTERS_0_NAME: local-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       DYNAMIC_CONFIG_ENABLED: "true"
     ports:
       - "8081:8080"
     depends_on:
-      - redpanda
+      - kafka
 
 volumes:
   pg_data:

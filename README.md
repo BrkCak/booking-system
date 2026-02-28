@@ -67,14 +67,20 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 This project now includes a local infrastructure setup for learning event-driven booking flows:
 
 - PostgreSQL on `localhost:5432`
-- Redpanda (Kafka API compatible) on `localhost:9092`
-- Redpanda Console on `http://localhost:8080`
+- Apache Kafka on `localhost:9092`
 - Kafbat (Kafka UI) on `http://localhost:8081`
 
 ### Start local infra
 
 ```bash
 npm run infra:up
+```
+
+### Kafka health check
+
+```bash
+docker compose -f infra/docker-compose.yml exec -T kafka \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
 ```
 
 ### Create Kafka topics
