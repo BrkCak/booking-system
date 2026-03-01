@@ -62,6 +62,12 @@ export async function ensureSchema(): Promise<void> {
 		`);
 		await runDdlSafely(client, `
 			ALTER TABLE bookings
+			ADD COLUMN IF NOT EXISTS room_id TEXT,
+			ADD COLUMN IF NOT EXISTS check_in DATE,
+			ADD COLUMN IF NOT EXISTS check_out DATE;
+		`);
+		await runDdlSafely(client, `
+			ALTER TABLE bookings
 			DROP CONSTRAINT IF EXISTS bookings_status_check;
 		`);
 		await runDdlSafely(client, `
@@ -85,6 +91,27 @@ export async function ensureSchema(): Promise<void> {
 			ALTER TABLE bookings
 			ADD CONSTRAINT bookings_check_in_out_positive
 			CHECK (check_in IS NOT NULL AND check_out IS NOT NULL AND check_in < check_out);
+		`);
+		await client.query(`
+			WITH conflicts AS (
+				SELECT DISTINCT newer.id
+				FROM bookings newer
+				JOIN bookings older
+					ON newer.room_id = older.room_id
+					AND newer.id <> older.id
+					AND newer.status IN ('PENDING', 'CONFIRMED')
+					AND older.status IN ('PENDING', 'CONFIRMED')
+					AND daterange(newer.check_in, newer.check_out, '[)') && daterange(older.check_in, older.check_out, '[)')
+					AND (
+						newer.created_at > older.created_at
+						OR (newer.created_at = older.created_at AND newer.id::text > older.id::text)
+					)
+			)
+			UPDATE bookings b
+			SET status = 'REJECTED',
+					reason = COALESCE(NULLIF(TRIM(b.reason), ''), 'Auto-rejected during schema migration due to overlapping active booking.'),
+					updated_at = NOW()
+			WHERE b.id IN (SELECT id FROM conflicts);
 		`);
 		await client.query(`
 			DO $$

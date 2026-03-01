@@ -7,6 +7,7 @@ import {
 	createBookingRecord,
 	isActiveSlotConflict,
 } from "../shared/bookings";
+import { parseSlotId } from "../shared/slot";
 
 type BookingStatus = "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ACTIVE_SLOT_CONFLICT_CONSTRAINT, pool } from "./db";
+import { isOverlapDatabaseError, parseSlotId } from "./slot";
 
 type BookingRow = {
 	id: string;
@@ -38,7 +39,10 @@ export function isActiveSlotConflict(error: unknown): boolean {
 	}
 
 	const value = error as PgError;
-	return value.code === "23505" && value.constraint === ACTIVE_SLOT_CONFLICT_CONSTRAINT;
+	return (
+		(value.code === "23505" && value.constraint === ACTIVE_SLOT_CONFLICT_CONSTRAINT) ||
+		isOverlapDatabaseError(error)
+	);
 }
 
 export async function createBookingRecord(
@@ -46,14 +50,29 @@ export async function createBookingRecord(
 	slotId: string,
 	requestedEventType: string,
 ): Promise<BookingRecord> {
+	const parsedSlot = parseSlotId(slotId);
+	if (!parsedSlot) {
+		throw new Error(
+			"Invalid slotId. Expected roomId:YYYY-MM-DD:YYYY-MM-DD:g<guests> with check-out after check-in.",
+		);
+	}
+
+	const normalizedSlotId = slotId.trim();
 	const client = await pool.connect();
 	try {
 		await client.query("BEGIN");
 		const insertResult = await client.query<BookingRow>(
-			`INSERT INTO bookings (id, user_id, slot_id, status, reason)
-       VALUES ($1, $2, $3, 'PENDING', NULL)
+			`INSERT INTO bookings (id, user_id, slot_id, room_id, check_in, check_out, status, reason)
+       VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', NULL)
        RETURNING id, user_id, slot_id, status, reason, created_at, updated_at`,
-			[randomUUID(), userId, slotId],
+			[
+				randomUUID(),
+				userId,
+				normalizedSlotId,
+				parsedSlot.roomId,
+				parsedSlot.checkIn,
+				parsedSlot.checkOut,
+			],
 		);
 		const row = insertResult.rows[0];
 		const booking: BookingRecord = {
