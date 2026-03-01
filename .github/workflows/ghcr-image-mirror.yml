@@ -54,8 +54,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          OWNER_LC="$(printf '%s' "${{ env.OWNER }}" | tr '[:upper:]' '[:lower:]')"
+          REPO_PREFIX_LC="$(printf '%s' "${{ env.REPO_PREFIX }}" | tr '[:upper:]' '[:lower:]')"
           SOURCE="${{ matrix.source_image }}:${{ matrix.source_tag }}"
-          TARGET="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_PREFIX }}-${{ matrix.target_name }}:${{ matrix.target_tag }}"
+          TARGET="${{ env.REGISTRY }}/${OWNER_LC}/${REPO_PREFIX_LC}-${{ matrix.target_name }}:${{ matrix.target_tag }}"
 
           echo "Mirroring $SOURCE -> $TARGET"
           docker pull "$SOURCE"
