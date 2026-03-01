@@ -47,8 +47,8 @@ jobs:
             }
 
             try {
-              const actors = await github.graphql(
-                `query($owner: String!, $name: String!) {
+              const actors = await github.request("POST /graphql", {
+                query: `query($owner: String!, $name: String!) {
                   repository(owner: $owner, name: $name) {
                     suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 100) {
                       nodes {
@@ -57,17 +57,24 @@ jobs:
                     }
                   }
                 }`,
-                { owner, name: repo },
-              );
+                variables: {
+                  owner,
+                  name: repo,
+                },
+                headers: {
+                  "GraphQL-Features":
+                    "issues_copilot_assignment_api_support,coding_agent_model_selection",
+                },
+              });
 
-              const logins = actors.repository.suggestedActors.nodes.map((node) => node.login);
+              const logins = actors.data.repository.suggestedActors.nodes.map((node) => node.login);
               if (!logins.includes("copilot-swe-agent")) {
-                core.warning("copilot-swe-agent is not assignable in this repository.");
-                return;
+                core.warning(
+                  `copilot-swe-agent not found in suggestedActors. Available: ${logins.join(", ") || "(none)"}`,
+                );
               }
             } catch (error) {
-              core.warning(`Could not verify assignable actors: ${error.message}`);
-              return;
+              core.warning(`Could not verify assignable actors: ${error.message}. Continuing with assignment attempt.`);
             }
 
             try {
