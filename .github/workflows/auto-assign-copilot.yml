@@ -15,12 +15,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Copilot assignment token
-        if: ${{ secrets.COPILOT_ASSIGN_TOKEN == '' }}
+        id: token
+        env:
+          COPILOT_ASSIGN_TOKEN: ${{ secrets.COPILOT_ASSIGN_TOKEN }}
         run: |
-          echo "::warning::Missing COPILOT_ASSIGN_TOKEN secret. Skipping Copilot auto-assignment."
+          if [ -z "${COPILOT_ASSIGN_TOKEN}" ]; then
+            echo "has_token=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::Missing COPILOT_ASSIGN_TOKEN secret. Skipping Copilot auto-assignment."
+          else
+            echo "has_token=true" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Assign issue to Copilot
-        if: ${{ secrets.COPILOT_ASSIGN_TOKEN != '' }}
+        if: steps.token.outputs.has_token == 'true'
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.COPILOT_ASSIGN_TOKEN }}
