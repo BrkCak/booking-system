@@ -43,11 +43,15 @@ export async function ensureSchema(): Promise<void> {
 	try {
 		await client.query("BEGIN");
 		await client.query("SELECT pg_advisory_lock(424242)");
+		await runDdlSafely(client, `CREATE EXTENSION IF NOT EXISTS btree_gist;`);
 		await runDdlSafely(client, `
 			CREATE TABLE IF NOT EXISTS bookings (
 				id UUID PRIMARY KEY,
 				user_id TEXT NOT NULL,
 				slot_id TEXT NOT NULL,
+				room_id TEXT,
+				check_in DATE,
+				check_out DATE,
 				status TEXT NOT NULL CHECK (status IN ('PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED')),
 				reason TEXT,
 				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -62,6 +66,45 @@ export async function ensureSchema(): Promise<void> {
 			ALTER TABLE bookings
 			ADD CONSTRAINT bookings_status_check
 			CHECK (status IN ('PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED'));
+		`);
+		await client.query(`
+			UPDATE bookings
+			SET room_id = split_part(slot_id, ':', 1),
+					check_in = NULLIF(split_part(slot_id, ':', 2), '')::DATE,
+					check_out = NULLIF(split_part(slot_id, ':', 3), '')::DATE
+			WHERE (room_id IS NULL OR check_in IS NULL OR check_out IS NULL)
+				AND slot_id ~ '^[^:]+:\\d{4}-\\d{2}-\\d{2}:\\d{4}-\\d{2}-\\d{2}:g\\d+$';
+		`);
+		await client.query(`
+			ALTER TABLE bookings
+			DROP CONSTRAINT IF EXISTS bookings_check_in_out_positive;
+		`);
+		await runDdlSafely(client, `
+			ALTER TABLE bookings
+			ADD CONSTRAINT bookings_check_in_out_positive
+			CHECK (check_in IS NOT NULL AND check_out IS NOT NULL AND check_in < check_out);
+		`);
+		await client.query(`
+			DO $$
+			BEGIN
+				IF NOT EXISTS (
+					SELECT 1 FROM pg_constraint WHERE conname = 'bookings_room_overlap_excl'
+				) THEN
+					ALTER TABLE bookings
+					ADD CONSTRAINT bookings_room_overlap_excl
+					EXCLUDE USING gist (
+						room_id WITH =,
+						daterange(check_in, check_out, '[)') WITH &&
+					)
+					WHERE (status IN ('PENDING', 'CONFIRMED'));
+				END IF;
+			END $$;
+		`);
+		await runDdlSafely(client, `
+			ALTER TABLE bookings
+			ALTER COLUMN room_id SET NOT NULL,
+			ALTER COLUMN check_in SET NOT NULL,
+			ALTER COLUMN check_out SET NOT NULL;
 		`);
 		await runDdlSafely(client, `
 			CREATE TABLE IF NOT EXISTS outbox_events (

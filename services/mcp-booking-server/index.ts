@@ -4,21 +4,53 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { ensureSchema, pool } from "../shared/db";
+import { isOverlapDatabaseError, parseSlotId } from "../shared/slot";
 
 const BOOKING_REQUESTED_EVENT_TYPE =
 	process.env.BOOKING_REQUESTED_EVENT_TYPE ?? "booking.requested";
 
 async function createBooking(userId: string, slotId: string): Promise<string> {
+	const slot = parseSlotId(slotId);
+	if (!slot) {
+		throw new Error(
+			"Invalid slotId. Expected roomId:YYYY-MM-DD:YYYY-MM-DD:g<guests> with check-out after check-in.",
+		);
+	}
+
 	const bookingId = randomUUID();
 	const createdAt = new Date().toISOString();
 
 	const client = await pool.connect();
 	try {
 		await client.query("BEGIN");
+		const overlap = await client.query(
+			`SELECT 1 FROM bookings
+       WHERE room_id = $1
+         AND status IN ('PENDING', 'CONFIRMED')
+         AND daterange(check_in, check_out, '[)') && daterange($2::date, $3::date, '[)')
+       LIMIT 1
+       FOR KEY SHARE`,
+			[slot.roomId, slot.checkIn, slot.checkOut],
+		);
+
+		if (overlap.rowCount && overlap.rowCount > 0) {
+			await client.query("ROLLBACK");
+			throw new Error("Requested dates overlap an existing booking for this room.");
+		}
+
 		await client.query(
-			`INSERT INTO bookings (id, user_id, slot_id, status, reason)
-       VALUES ($1, $2, $3, $4, $5)`,
-			[bookingId, userId, slotId, "PENDING", null],
+			`INSERT INTO bookings (id, user_id, slot_id, status, reason, room_id, check_in, check_out)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			[
+				bookingId,
+				userId,
+				slotId,
+				"PENDING",
+				null,
+				slot.roomId,
+				slot.checkIn,
+				slot.checkOut,
+			],
 		);
 		await client.query(
 			`INSERT INTO outbox_events (event_type, event_key, payload)
@@ -38,6 +70,9 @@ async function createBooking(userId: string, slotId: string): Promise<string> {
 		await client.query("COMMIT");
 	} catch (error) {
 		await client.query("ROLLBACK");
+		if (isOverlapDatabaseError(error)) {
+			throw new Error("Requested dates overlap an existing booking for this room.");
+		}
 		throw error;
 	} finally {
 		client.release();

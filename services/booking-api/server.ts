@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { ensureSchema, pool } from "../shared/db";
+import { isOverlapDatabaseError, parseSlotId } from "../shared/slot";
 
 type BookingStatus = "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 
@@ -131,6 +132,14 @@ async function handleCreateBooking(
 	body: BookingRequest,
 	res: ServerResponse,
 ): Promise<void> {
+	const slot = parseSlotId(body.slotId);
+	if (!slot) {
+		sendJson(res, 400, {
+			error: "Invalid slotId. Expected roomId:YYYY-MM-DD:YYYY-MM-DD:g<guests> with check-out after check-in.",
+		});
+		return;
+	}
+
 	try {
 		const bookingId = randomUUID();
 		const booking: BookingCreated = {
@@ -146,10 +155,37 @@ async function handleCreateBooking(
 		const client = await pool.connect();
 		try {
 			await client.query("BEGIN");
+			const overlap = await client.query(
+				`SELECT 1 FROM bookings
+         WHERE room_id = $1
+           AND status IN ('PENDING', 'CONFIRMED')
+           AND daterange(check_in, check_out, '[)') && daterange($2::date, $3::date, '[)')
+         LIMIT 1
+         FOR KEY SHARE`,
+				[slot.roomId, slot.checkIn, slot.checkOut],
+			);
+
+			if (overlap.rowCount && overlap.rowCount > 0) {
+				await client.query("ROLLBACK");
+				sendJson(res, 409, {
+					error: "Requested dates overlap an existing booking for this room.",
+				});
+				return;
+			}
+
 			await client.query(
-				`INSERT INTO bookings (id, user_id, slot_id, status, reason)
-         VALUES ($1, $2, $3, $4, $5)`,
-				[booking.bookingId, booking.userId, booking.slotId, booking.status, booking.reason],
+				`INSERT INTO bookings (id, user_id, slot_id, status, reason, room_id, check_in, check_out)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				[
+					booking.bookingId,
+					booking.userId,
+					booking.slotId,
+					booking.status,
+					booking.reason,
+					slot.roomId,
+					slot.checkIn,
+					slot.checkOut,
+				],
 			);
 
 			await client.query(
@@ -177,6 +213,13 @@ async function handleCreateBooking(
 
 		sendJson(res, 201, booking);
 	} catch (error) {
+		if (isOverlapDatabaseError(error)) {
+			sendJson(res, 409, {
+				error: "Requested dates overlap an existing booking for this room.",
+			});
+			return;
+		}
+
 		sendJson(res, 500, {
 			error: "Could not create booking.",
 			details: error instanceof Error ? error.message : "Unknown error",
@@ -360,7 +403,14 @@ async function handleRescheduleBooking(
 			return;
 		}
 
-		const slotId = body.slotId.trim();
+		const slot = parseSlotId(body.slotId);
+		if (!slot) {
+			sendJson(res, 400, {
+				error: "Invalid slotId. Expected roomId:YYYY-MM-DD:YYYY-MM-DD:g<guests> with check-out after check-in.",
+			});
+			return;
+		}
+
 		const client = await pool.connect();
 		try {
 			await client.query("BEGIN");
@@ -392,15 +442,37 @@ async function handleRescheduleBooking(
 				return;
 			}
 
+			const overlap = await client.query(
+				`SELECT 1 FROM bookings
+         WHERE room_id = $1
+           AND id <> $4
+           AND status IN ('PENDING', 'CONFIRMED')
+           AND daterange(check_in, check_out, '[)') && daterange($2::date, $3::date, '[)')
+         LIMIT 1
+         FOR KEY SHARE`,
+				[slot.roomId, slot.checkIn, slot.checkOut, bookingId],
+			);
+
+			if (overlap.rowCount && overlap.rowCount > 0) {
+				await client.query("ROLLBACK");
+				sendJson(res, 409, {
+					error: "Requested dates overlap an existing booking for this room.",
+				});
+				return;
+			}
+
 			const updateResult = await client.query<BookingRow>(
 				`UPDATE bookings
          SET slot_id = $2,
+             room_id = $3,
+             check_in = $4,
+             check_out = $5,
              status = 'PENDING',
              reason = NULL,
              updated_at = NOW()
          WHERE id = $1
          RETURNING id, user_id, slot_id, status, reason, created_at, updated_at`,
-				[bookingId, slotId],
+				[bookingId, body.slotId.trim(), slot.roomId, slot.checkIn, slot.checkOut],
 			);
 			const updated = updateResult.rows[0];
 
@@ -428,6 +500,13 @@ async function handleRescheduleBooking(
 			client.release();
 		}
 	} catch (error) {
+		if (isOverlapDatabaseError(error)) {
+			sendJson(res, 409, {
+				error: "Requested dates overlap an existing booking for this room.",
+			});
+			return;
+		}
+
 		sendJson(res, 500, {
 			error: "Could not reschedule booking.",
 			details: error instanceof Error ? error.message : "Unknown error",
