@@ -1,0 +1,63 @@
+name: Mirror Container Images To GHCR
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 2 * * *"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/ghcr-image-mirror.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+  REPO_PREFIX: ${{ github.event.repository.name }}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source_image: apache/kafka
+            source_tag: 3.8.1
+            target_name: apache-kafka
+            target_tag: 3.8.1
+          - source_image: dpage/pgadmin4
+            source_tag: "9.12"
+            target_name: pgadmin4
+            target_tag: "9.12"
+          - source_image: ghcr.io/kafbat/kafka-ui
+            source_tag: latest
+            target_name: kafka-ui
+            target_tag: latest
+          - source_image: postgres
+            source_tag: 16-alpine
+            target_name: postgres
+            target_tag: 16-alpine
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull, retag, and push image
+        run: |
+          set -euo pipefail
+
+          SOURCE="${{ matrix.source_image }}:${{ matrix.source_tag }}"
+          TARGET="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_PREFIX }}-${{ matrix.target_name }}:${{ matrix.target_tag }}"
+
+          echo "Mirroring $SOURCE -> $TARGET"
+          docker pull "$SOURCE"
+          docker tag "$SOURCE" "$TARGET"
+          docker push "$TARGET"
