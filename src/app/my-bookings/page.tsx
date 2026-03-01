@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { rooms } from "@/lib/hotel-data";
 
 type BookingStatus = "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 
@@ -20,6 +21,16 @@ type BookingListResponse = {
 	bookings: Booking[];
 };
 
+type RescheduleForm = {
+	roomId: string;
+	checkIn: string;
+	checkOut: string;
+	guests: string;
+	error?: string;
+};
+
+const defaultRoomId = rooms[0]?.id ?? "";
+
 function statusBadge(status: BookingStatus): string {
 	if (status === "CONFIRMED") {
 		return "text-emerald-700 bg-emerald-100";
@@ -33,13 +44,28 @@ function statusBadge(status: BookingStatus): string {
 	return "text-amber-700 bg-amber-100";
 }
 
+function parseSlotId(slotId: string): Omit<RescheduleForm, "error"> {
+	const parts = slotId.split(":");
+	const guests = parts[3]?.trim() ?? "";
+	return {
+		roomId: parts[0]?.trim() || defaultRoomId,
+		checkIn: parts[1]?.trim() ?? "",
+		checkOut: parts[2]?.trim() ?? "",
+		guests: guests.startsWith("g") ? guests.slice(1) : guests,
+	};
+}
+
+function buildSlotId(form: Omit<RescheduleForm, "error">): string {
+	return `${form.roomId}:${form.checkIn}:${form.checkOut}:g${form.guests}`;
+}
+
 export default function MyBookingsPage() {
 	const [userId, setUserId] = useState<string | null>(null);
 	const [bookings, setBookings] = useState<Booking[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [busyId, setBusyId] = useState<string | null>(null);
-	const [rescheduleInputs, setRescheduleInputs] = useState<Record<string, string>>({});
+	const [rescheduleInputs, setRescheduleInputs] = useState<Record<string, RescheduleForm>>({});
 
 	async function loadBookings() {
 		setLoading(true);
@@ -101,18 +127,54 @@ export default function MyBookingsPage() {
 		}
 	}
 
-	async function rescheduleBooking(event: FormEvent, bookingId: string) {
+	async function rescheduleBooking(event: FormEvent, booking: Booking) {
 		event.preventDefault();
-		const slotId = rescheduleInputs[bookingId]?.trim() ?? "";
-		if (!slotId) {
-			setError("Please enter a slotId for rescheduling.");
+		const currentForm = rescheduleInputs[booking.bookingId] ?? { ...parseSlotId(booking.slotId), error: undefined };
+		const trimmedForm = {
+			roomId: currentForm.roomId.trim(),
+			checkIn: currentForm.checkIn.trim(),
+			checkOut: currentForm.checkOut.trim(),
+			guests: currentForm.guests.trim(),
+		};
+
+		const guestsNumber = Number.parseInt(trimmedForm.guests, 10);
+		if (!trimmedForm.roomId || !trimmedForm.checkIn || !trimmedForm.checkOut || !trimmedForm.guests) {
+			setRescheduleInputs((current) => ({
+				...current,
+				[booking.bookingId]: { ...trimmedForm, error: "All fields are required." },
+			}));
+			setError(null);
 			return;
 		}
 
-		setBusyId(bookingId);
+		if (trimmedForm.checkOut <= trimmedForm.checkIn) {
+			setRescheduleInputs((current) => ({
+				...current,
+				[booking.bookingId]: { ...trimmedForm, error: "Check-out must be after check-in." },
+			}));
+			setError(null);
+			return;
+		}
+
+		if (!Number.isFinite(guestsNumber) || guestsNumber < 1) {
+			setRescheduleInputs((current) => ({
+				...current,
+				[booking.bookingId]: { ...trimmedForm, error: "Guests must be at least 1." },
+			}));
+			setError(null);
+			return;
+		}
+
+		const slotId = buildSlotId({ ...trimmedForm, guests: String(guestsNumber) });
+
+		setBusyId(booking.bookingId);
 		setError(null);
+		setRescheduleInputs((current) => ({
+			...current,
+			[booking.bookingId]: { ...trimmedForm, guests: String(guestsNumber), error: undefined },
+		}));
 		try {
-			const response = await fetch(`/api/bookings/${bookingId}/reschedule`, {
+			const response = await fetch(`/api/bookings/${booking.bookingId}/reschedule`, {
 				method: "PATCH",
 				headers: {
 					"content-type": "application/json",
@@ -125,7 +187,10 @@ export default function MyBookingsPage() {
 				return;
 			}
 
-			setRescheduleInputs((current) => ({ ...current, [bookingId]: "" }));
+			setRescheduleInputs((current) => {
+				const { [booking.bookingId]: _removed, ...rest } = current;
+				return rest;
+			});
 			await loadBookings();
 		} catch {
 			setError("Network error while rescheduling booking.");
@@ -215,27 +280,107 @@ export default function MyBookingsPage() {
 
 									{canReschedule ? (
 										<form
-											className="flex flex-wrap items-center gap-2"
-											onSubmit={(event) => void rescheduleBooking(event, booking.bookingId)}
+											className="mt-2 grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-[1.1fr_1.1fr_0.9fr_0.7fr_auto] lg:items-end"
+											onSubmit={(event) => void rescheduleBooking(event, booking)}
 										>
-											<input
-												className="w-[280px] rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none ring-[var(--brand)] focus:ring"
-												placeholder="new slotId e.g. ocean-suite:2026-03-10:2026-03-12:g2"
-												value={rescheduleInputs[booking.bookingId] ?? ""}
-												onChange={(event) =>
-													setRescheduleInputs((current) => ({
-														...current,
-														[booking.bookingId]: event.target.value,
-													}))
-												}
-											/>
+											<label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-[var(--ink-soft)]">
+												<span>Room</span>
+												<select
+													className="min-w-0 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none ring-[var(--brand)] focus:ring"
+													value={(rescheduleInputs[booking.bookingId] ?? parseSlotId(booking.slotId)).roomId}
+													onChange={(event) =>
+														setRescheduleInputs((current) => {
+															const base = current[booking.bookingId] ?? {
+																...parseSlotId(booking.slotId),
+																error: undefined,
+															};
+															return {
+																...current,
+																[booking.bookingId]: { ...base, roomId: event.target.value, error: undefined },
+															};
+														})
+													}
+												>
+													{rooms.map((room) => (
+														<option key={room.id} value={room.id}>
+															{room.name}
+														</option>
+													))}
+												</select>
+											</label>
+											<label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-[var(--ink-soft)]">
+												<span>Check-in</span>
+												<input
+													type="date"
+													className="min-w-0 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none ring-[var(--brand)] focus:ring"
+													value={(rescheduleInputs[booking.bookingId] ?? parseSlotId(booking.slotId)).checkIn}
+													onChange={(event) =>
+														setRescheduleInputs((current) => {
+															const base = current[booking.bookingId] ?? {
+																...parseSlotId(booking.slotId),
+																error: undefined,
+															};
+															return {
+																...current,
+																[booking.bookingId]: { ...base, checkIn: event.target.value, error: undefined },
+															};
+														})
+													}
+												/>
+											</label>
+											<label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-[var(--ink-soft)]">
+												<span>Check-out</span>
+												<input
+													type="date"
+													className="min-w-0 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none ring-[var(--brand)] focus:ring"
+													value={(rescheduleInputs[booking.bookingId] ?? parseSlotId(booking.slotId)).checkOut}
+													onChange={(event) =>
+														setRescheduleInputs((current) => {
+															const base = current[booking.bookingId] ?? {
+																...parseSlotId(booking.slotId),
+																error: undefined,
+															};
+															return {
+																...current,
+																[booking.bookingId]: { ...base, checkOut: event.target.value, error: undefined },
+															};
+														})
+													}
+												/>
+											</label>
+											<label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-[var(--ink-soft)]">
+												<span>Guests</span>
+												<input
+													type="number"
+													min={1}
+													className="min-w-0 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none ring-[var(--brand)] focus:ring"
+													value={(rescheduleInputs[booking.bookingId] ?? parseSlotId(booking.slotId)).guests}
+													onChange={(event) =>
+														setRescheduleInputs((current) => {
+															const base = current[booking.bookingId] ?? {
+																...parseSlotId(booking.slotId),
+																error: undefined,
+															};
+															return {
+																...current,
+																[booking.bookingId]: { ...base, guests: event.target.value, error: undefined },
+															};
+														})
+													}
+												/>
+											</label>
 											<button
 												type="submit"
 												disabled={isBusy}
-												className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+												className="w-full rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
 											>
 												Reschedule
 											</button>
+											{rescheduleInputs[booking.bookingId]?.error ? (
+												<p className="col-span-full text-sm text-red-700 sm:col-span-2 lg:col-span-full">
+													{rescheduleInputs[booking.bookingId]?.error}
+												</p>
+											) : null}
 										</form>
 									) : null}
 								</div>
