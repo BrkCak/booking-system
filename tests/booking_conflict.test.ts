@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
-import { SlotAlreadyBookedError, createBookingRecord } from "../services/shared/bookings";
-import { ensureSchema, pool } from "../services/shared/db";
+import { SlotAlreadyBookedError, createBookingRecord } from "../services/shared/bookings.ts";
+import { ensureSchema, pool } from "../services/shared/db.ts";
 
 const EVENT_TYPE = process.env.BOOKING_REQUESTED_EVENT_TYPE ?? "booking.requested";
 const SLOT_ID = "room-101:2026-03-01:2026-03-02:g2";

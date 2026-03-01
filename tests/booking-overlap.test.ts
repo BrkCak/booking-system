@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { after, before, beforeEach, test } from "node:test";
 import { randomUUID } from "node:crypto";
-import { ensureSchema, pool } from "../services/shared/db";
+import { ensureSchema, pool } from "../services/shared/db.ts";
 
 async function truncateAll(): Promise<void> {
 	await pool.query("TRUNCATE bookings, outbox_events RESTART IDENTITY");
