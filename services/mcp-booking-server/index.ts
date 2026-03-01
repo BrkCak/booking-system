@@ -1,54 +1,21 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { ensureSchema, pool } from "../shared/db";
+import { SlotAlreadyBookedError, createBookingRecord } from "../shared/bookings";
 
 const BOOKING_REQUESTED_EVENT_TYPE =
 	process.env.BOOKING_REQUESTED_EVENT_TYPE ?? "booking.requested";
 
 async function createBooking(userId: string, slotId: string): Promise<string> {
-	const bookingId = randomUUID();
-	const createdAt = new Date().toISOString();
-
-	const client = await pool.connect();
-	try {
-		await client.query("BEGIN");
-		await client.query(
-			`INSERT INTO bookings (id, user_id, slot_id, status, reason)
-       VALUES ($1, $2, $3, $4, $5)`,
-			[bookingId, userId, slotId, "PENDING", null],
-		);
-		await client.query(
-			`INSERT INTO outbox_events (event_type, event_key, payload)
-       VALUES ($1, $2, $3::jsonb)`,
-			[
-				BOOKING_REQUESTED_EVENT_TYPE,
-				bookingId,
-				JSON.stringify({
-					bookingId,
-					userId,
-					slotId,
-					status: "PENDING",
-					createdAt,
-				}),
-			],
-		);
-		await client.query("COMMIT");
-	} catch (error) {
-		await client.query("ROLLBACK");
-		throw error;
-	} finally {
-		client.release();
-	}
-
+	const booking = await createBookingRecord(userId, slotId, BOOKING_REQUESTED_EVENT_TYPE);
 	return JSON.stringify(
 		{
-			bookingId,
-			userId,
-			slotId,
-			status: "PENDING",
+			bookingId: booking.bookingId,
+			userId: booking.userId,
+			slotId: booking.slotId,
+			status: booking.status,
 			message: "Booking created in PostgreSQL. Use get_booking to check status after worker processing.",
 		},
 		null,
@@ -113,6 +80,12 @@ server.registerTool(
 			return { content: [{ type: "text" as const, text }] };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
+			if (error instanceof SlotAlreadyBookedError) {
+				return {
+					content: [{ type: "text" as const, text: message }],
+					isError: true,
+				};
+			}
 			return {
 				content: [{ type: "text" as const, text: `Error: ${message}` }],
 				isError: true,
