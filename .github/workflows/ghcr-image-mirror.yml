@@ -29,10 +29,6 @@ jobs:
             source_tag: 3.8.1
             target_name: apache-kafka
             target_tag: 3.8.1
-          - source_image: dpage/pgadmin4
-            source_tag: "9.12"
-            target_name: pgadmin4
-            target_tag: "9.12"
           - source_image: ghcr.io/kafbat/kafka-ui
             source_tag: latest
             target_name: kafka-ui
