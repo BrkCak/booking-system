@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ghcr.io/brkcak/booking-system-postgres:16-alpine
     environment:
       POSTGRES_USER: booking
       POSTGRES_PASSWORD: booking
@@ -11,7 +11,7 @@ services:
       - pg_data:/var/lib/postgresql/data
 
   kafka:
-    image: apache/kafka:3.8.1
+    image: ghcr.io/brkcak/booking-system-apache-kafka:3.8.1
     environment:
       KAFKA_NODE_ID: "1"
       KAFKA_PROCESS_ROLES: "broker,controller"
@@ -30,7 +30,7 @@ services:
       - "9092:9092"
 
   kafbat:
-    image: ghcr.io/kafbat/kafka-ui:latest
+    image: ghcr.io/brkcak/booking-system-kafka-ui:latest
     environment:
       KAFKA_CLUSTERS_0_NAME: local-kafka
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092

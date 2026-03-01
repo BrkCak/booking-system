@@ -50,7 +50,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull, retag, and push image
+      - name: Install skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+
+      - name: Mirror all available platforms
         run: |
           set -euo pipefail
 
@@ -60,6 +65,4 @@ jobs:
           TARGET="${{ env.REGISTRY }}/${OWNER_LC}/${REPO_PREFIX_LC}-${{ matrix.target_name }}:${{ matrix.target_tag }}"
 
           echo "Mirroring $SOURCE -> $TARGET"
-          docker pull "$SOURCE"
-          docker tag "$SOURCE" "$TARGET"
-          docker push "$TARGET"
+          skopeo copy --all "docker://${SOURCE}" "docker://${TARGET}"

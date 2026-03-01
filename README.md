@@ -69,6 +69,10 @@ This project now includes a local infrastructure setup for learning event-driven
 - PostgreSQL on `localhost:5432`
 - Apache Kafka on `localhost:9092`
 - Kafbat (Kafka UI) on `http://localhost:8081`
+- pgAdmin on `http://localhost:5050`
+
+The stack uses mirrored images from GitHub Container Registry (`ghcr.io/brkcak/booking-system-*`).
+If the packages are private, run a one-time `docker login ghcr.io` before `npm run infra:up`.
 
 ### Start local infra
 
