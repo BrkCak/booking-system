@@ -4,6 +4,8 @@ import process from "node:process";
 const DATABASE_URL =
 	process.env.DATABASE_URL ?? "postgres://booking:booking@localhost:5432/booking";
 
+export const ACTIVE_SLOT_CONFLICT_CONSTRAINT = "bookings_slot_active_unique";
+
 export const pool = new Pool({
 	connectionString: DATABASE_URL,
 });
@@ -62,6 +64,11 @@ export async function ensureSchema(): Promise<void> {
 			ALTER TABLE bookings
 			ADD CONSTRAINT bookings_status_check
 			CHECK (status IN ('PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED'));
+		`);
+		await runDdlSafely(client, `
+			CREATE UNIQUE INDEX IF NOT EXISTS ${ACTIVE_SLOT_CONFLICT_CONSTRAINT}
+			ON bookings (slot_id)
+			WHERE status IN ('PENDING', 'CONFIRMED');
 		`);
 		await runDdlSafely(client, `
 			CREATE TABLE IF NOT EXISTS outbox_events (

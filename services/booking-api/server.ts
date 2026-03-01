@@ -1,8 +1,12 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { Buffer } from "node:buffer";
-import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { ensureSchema, pool } from "../shared/db";
+import {
+	SlotAlreadyBookedError,
+	createBookingRecord,
+	isActiveSlotConflict,
+} from "../shared/bookings";
 
 type BookingStatus = "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 
@@ -17,16 +21,6 @@ type CancelBookingRequest = {
 
 type RescheduleBookingRequest = {
 	slotId: string;
-};
-
-type BookingCreated = {
-	bookingId: string;
-	userId: string;
-	slotId: string;
-	status: "PENDING";
-	createdAt: string;
-	updatedAt: string;
-	reason: string | null;
 };
 
 type BookingRow = {
@@ -132,51 +126,13 @@ async function handleCreateBooking(
 	res: ServerResponse,
 ): Promise<void> {
 	try {
-		const bookingId = randomUUID();
-		const booking: BookingCreated = {
-			bookingId,
-			userId: body.userId,
-			slotId: body.slotId,
-			status: "PENDING",
-			createdAt: new Date().toISOString(),
-			updatedAt: new Date().toISOString(),
-			reason: null,
-		};
-
-		const client = await pool.connect();
-		try {
-			await client.query("BEGIN");
-			await client.query(
-				`INSERT INTO bookings (id, user_id, slot_id, status, reason)
-         VALUES ($1, $2, $3, $4, $5)`,
-				[booking.bookingId, booking.userId, booking.slotId, booking.status, booking.reason],
-			);
-
-			await client.query(
-				`INSERT INTO outbox_events (event_type, event_key, payload)
-         VALUES ($1, $2, $3::jsonb)`,
-				[
-					BOOKING_REQUESTED_EVENT_TYPE,
-					booking.bookingId,
-					JSON.stringify({
-						bookingId: booking.bookingId,
-						userId: booking.userId,
-						slotId: booking.slotId,
-						status: booking.status,
-						createdAt: booking.createdAt,
-					}),
-				],
-			);
-			await client.query("COMMIT");
-		} catch (error) {
-			await client.query("ROLLBACK");
-			throw error;
-		} finally {
-			client.release();
-		}
-
+		const booking = await createBookingRecord(body.userId, body.slotId, BOOKING_REQUESTED_EVENT_TYPE);
 		sendJson(res, 201, booking);
 	} catch (error) {
+		if (error instanceof SlotAlreadyBookedError) {
+			sendJson(res, 409, { error: error.message });
+			return;
+		}
 		sendJson(res, 500, {
 			error: "Could not create booking.",
 			details: error instanceof Error ? error.message : "Unknown error",
@@ -423,11 +379,19 @@ async function handleRescheduleBooking(
 			sendJson(res, 200, toBookingResponse(updated));
 		} catch (error) {
 			await client.query("ROLLBACK");
+			if (isActiveSlotConflict(error)) {
+				sendJson(res, 409, { error: "This room and time slot is already booked." });
+				return;
+			}
 			throw error;
 		} finally {
 			client.release();
 		}
 	} catch (error) {
+		if (isActiveSlotConflict(error)) {
+			sendJson(res, 409, { error: "This room and time slot is already booked." });
+			return;
+		}
 		sendJson(res, 500, {
 			error: "Could not reschedule booking.",
 			details: error instanceof Error ? error.message : "Unknown error",
