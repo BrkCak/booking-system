@@ -1,0 +1,83 @@
+name: Auto-Assign Copilot
+
+on:
+  issues:
+    types:
+      - opened
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  assign-copilot:
+    if: github.event.issue.pull_request == null && !contains(github.event.issue.labels.*.name, 'no-copilot')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Copilot assignment token
+        if: ${{ secrets.COPILOT_ASSIGN_TOKEN == '' }}
+        run: |
+          echo "::warning::Missing COPILOT_ASSIGN_TOKEN secret. Skipping Copilot auto-assignment."
+
+      - name: Assign issue to Copilot
+        if: ${{ secrets.COPILOT_ASSIGN_TOKEN != '' }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.COPILOT_ASSIGN_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = context.payload.issue.number;
+            const defaultBranch = context.payload.repository.default_branch;
+            const existingAssignees = (context.payload.issue.assignees || []).map((assignee) => assignee.login);
+
+            if (
+              existingAssignees.includes("copilot-swe-agent") ||
+              existingAssignees.includes("copilot-swe-agent[bot]")
+            ) {
+              core.info("Copilot is already assigned.");
+              return;
+            }
+
+            try {
+              const actors = await github.graphql(
+                `query($owner: String!, $name: String!) {
+                  repository(owner: $owner, name: $name) {
+                    suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 100) {
+                      nodes {
+                        login
+                      }
+                    }
+                  }
+                }`,
+                { owner, name: repo },
+              );
+
+              const logins = actors.repository.suggestedActors.nodes.map((node) => node.login);
+              if (!logins.includes("copilot-swe-agent")) {
+                core.warning("copilot-swe-agent is not assignable in this repository.");
+                return;
+              }
+            } catch (error) {
+              core.warning(`Could not verify assignable actors: ${error.message}`);
+              return;
+            }
+
+            try {
+              await github.request("POST /repos/{owner}/{repo}/issues/{issue_number}/assignees", {
+                owner,
+                repo,
+                issue_number: issueNumber,
+                assignees: ["copilot-swe-agent[bot]"],
+                agent_assignment: {
+                  target_repo: `${owner}/${repo}`,
+                  base_branch: defaultBranch,
+                },
+                headers: {
+                  "X-GitHub-Api-Version": "2022-11-28",
+                },
+              });
+              core.info("Assigned issue to Copilot coding agent.");
+            } catch (error) {
+              core.warning(`Could not assign issue to Copilot: ${error.message}`);
+            }
