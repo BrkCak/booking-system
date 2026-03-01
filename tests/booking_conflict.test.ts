@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import process from "node:process";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { SlotAlreadyBookedError, createBookingRecord } from "../services/shared/bookings.ts";
 import { ensureSchema, pool } from "../services/shared/db.ts";
