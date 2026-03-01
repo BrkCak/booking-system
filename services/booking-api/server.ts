@@ -125,6 +125,14 @@ async function handleCreateBooking(
 	body: BookingRequest,
 	res: ServerResponse,
 ): Promise<void> {
+	const slot = parseSlotId(body.slotId);
+	if (!slot) {
+		sendJson(res, 400, {
+			error: "Invalid slotId. Expected roomId:YYYY-MM-DD:YYYY-MM-DD:g<guests> with check-out after check-in.",
+		});
+		return;
+	}
+
 	try {
 		const booking = await createBookingRecord(body.userId, body.slotId, BOOKING_REQUESTED_EVENT_TYPE);
 		sendJson(res, 201, booking);
@@ -316,7 +324,14 @@ async function handleRescheduleBooking(
 			return;
 		}
 
-		const slotId = body.slotId.trim();
+		const slot = parseSlotId(body.slotId);
+		if (!slot) {
+			sendJson(res, 400, {
+				error: "Invalid slotId. Expected roomId:YYYY-MM-DD:YYYY-MM-DD:g<guests> with check-out after check-in.",
+			});
+			return;
+		}
+
 		const client = await pool.connect();
 		try {
 			await client.query("BEGIN");
@@ -348,15 +363,37 @@ async function handleRescheduleBooking(
 				return;
 			}
 
+			const overlap = await client.query(
+				`SELECT 1 FROM bookings
+         WHERE room_id = $1
+           AND id <> $4
+           AND status IN ('PENDING', 'CONFIRMED')
+           AND daterange(check_in, check_out, '[)') && daterange($2::date, $3::date, '[)')
+         LIMIT 1
+         FOR KEY SHARE`,
+				[slot.roomId, slot.checkIn, slot.checkOut, bookingId],
+			);
+
+			if (overlap.rowCount && overlap.rowCount > 0) {
+				await client.query("ROLLBACK");
+				sendJson(res, 409, {
+					error: "Requested dates overlap an existing booking for this room.",
+				});
+				return;
+			}
+
 			const updateResult = await client.query<BookingRow>(
 				`UPDATE bookings
          SET slot_id = $2,
+             room_id = $3,
+             check_in = $4,
+             check_out = $5,
              status = 'PENDING',
              reason = NULL,
              updated_at = NOW()
          WHERE id = $1
          RETURNING id, user_id, slot_id, status, reason, created_at, updated_at`,
-				[bookingId, slotId],
+				[bookingId, body.slotId.trim(), slot.roomId, slot.checkIn, slot.checkOut],
 			);
 			const updated = updateResult.rows[0];
 
